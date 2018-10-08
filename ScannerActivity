@@ -1,0 +1,207 @@
+package com.example.android.architecture.blueprints.todoapp;
+
+import android.Manifest;
+import android.content.Context;
+import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.graphics.ImageFormat;
+import android.graphics.Rect;
+import android.hardware.camera2.CameraAccessException;
+import android.hardware.camera2.CameraCaptureSession;
+import android.hardware.camera2.CameraCharacteristics;
+import android.hardware.camera2.CameraDevice;
+import android.hardware.camera2.CameraManager;
+import android.hardware.camera2.CaptureRequest;
+import android.media.Image;
+import android.media.ImageReader;
+import android.os.Build;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.HandlerThread;
+import android.support.annotation.NonNull;
+import android.support.annotation.Nullable;
+import android.support.annotation.RequiresApi;
+import android.support.v4.app.ActivityCompat;
+import android.support.v7.app.AppCompatActivity;
+import android.view.Surface;
+import android.view.SurfaceHolder;
+import android.view.SurfaceView;
+import android.widget.Toast;
+
+import java.nio.ByteBuffer;
+import java.util.Arrays;
+
+public class ScannerActivity extends AppCompatActivity {
+
+    public static void gotoActivity(Context context) {
+        context.startActivity(new Intent(context, ScannerActivity.class));
+    }
+
+    private SurfaceView mSurfaceView;
+    private SurfaceHolder mSurfaceHolder;
+    private CameraManager mCameraManager;//摄像头管理器
+    private Handler childHandler, mainHandler;
+    private String mCameraID;//摄像头Id 0 为后  1 为前
+    private ImageReader mImageReader;
+    private CameraCaptureSession mCameraCaptureSession;
+    private CameraDevice mCameraDevice;
+
+
+    SurfaceView surfaceView;
+
+    @Override
+    protected void onCreate(@Nullable Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_scanner);
+        initView();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            initData();
+        }
+    }
+
+
+    private void initData() {
+
+
+    }
+
+    @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
+    private void takePreview() {
+        try {
+            final CaptureRequest.Builder builder = mCameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
+            builder.addTarget(mSurfaceHolder.getSurface());
+            mCameraDevice.createCaptureSession(Arrays.asList(mSurfaceHolder.getSurface(), mImageReader.getSurface()), new CameraCaptureSession.StateCallback() {
+                @Override
+                public void onConfigured(@NonNull CameraCaptureSession session) {
+                    if (null == mCameraDevice) {
+                        return;
+                    }
+                    mCameraCaptureSession = session;
+                    //自动对焦
+                    builder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
+                    //打开闪光灯
+                    builder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AE_MODE_ON_AUTO_FLASH);
+                    CaptureRequest previewRequest = builder.build();
+                    try {
+                        mCameraCaptureSession.setRepeatingRequest(previewRequest,null,childHandler);
+                    } catch (CameraAccessException e) {
+                        e.printStackTrace();
+                    }
+
+
+                }
+
+                @Override
+                public void onConfigureFailed(@NonNull CameraCaptureSession session) {
+
+                }
+            },childHandler);
+
+        } catch (CameraAccessException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void initView() {
+        surfaceView = findViewById(R.id.surface_view);
+        mSurfaceHolder = surfaceView.getHolder();
+        mSurfaceHolder.setKeepScreenOn(true);
+        surfaceView.getHolder().addCallback(new SurfaceHolder.Callback() {
+            @Override
+            public void surfaceCreated(SurfaceHolder holder) {
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    initCamera2();
+                }
+            }
+
+            @Override
+            public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
+            }
+
+            @Override
+            public void surfaceDestroyed(SurfaceHolder holder) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    if (null != mCameraDevice) {
+                        mCameraDevice.close();
+                        mCameraDevice = null;
+                    }
+                }
+            }
+
+
+        });
+        surfaceView.setKeepScreenOn(true);
+    }
+
+
+    @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
+    private void initCamera2() {
+        HandlerThread handlerThread = new HandlerThread("camera2");
+        handlerThread.start();
+        childHandler = new Handler(handlerThread.getLooper());
+        mainHandler = new Handler(getMainLooper());
+        mCameraID = String.valueOf(CameraCharacteristics.LENS_FACING_FRONT);
+        mImageReader = ImageReader.newInstance(1080, 1920, ImageFormat.JPEG, 1);
+        mImageReader.setOnImageAvailableListener(new ImageReader.OnImageAvailableListener() {
+            @Override
+            public void onImageAvailable(ImageReader reader) {
+                Image image = reader.acquireLatestImage();
+                ByteBuffer byteBuffer = image.getPlanes()[0].getBuffer();
+                byte[] bytes = new byte[byteBuffer.remaining()];
+                byteBuffer.get(bytes);
+                Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+
+            }
+        }, mainHandler);
+
+
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            // TODO: Consider calling
+            //    ActivityCompat#requestPermissions
+            // here to request the missing permissions, and then overriding
+            //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
+            //                                          int[] grantResults)
+            // to handle the case where the user grants the permission. See the documentation
+            // for ActivityCompat#requestPermissions for more details.
+            return;
+        }
+        try {
+            CameraManager manager = (CameraManager) this.getSystemService(Context.CAMERA_SERVICE);
+
+            manager.openCamera("0", new CameraDevice.StateCallback() {
+                @Override
+                public void onOpened(@NonNull CameraDevice camera) {
+                    mCameraDevice = camera;
+//                    camera.createCaptureSession();
+//                    takePreview();
+                }
+
+                @Override
+                public void onDisconnected(@NonNull CameraDevice camera) {
+                    if (null != mCameraDevice) {
+                        mCameraDevice.close();
+                        mCameraDevice = null;
+                    }
+
+                }
+
+                @Override
+                public void onError(@NonNull CameraDevice camera, int error) {
+
+                }
+            }, surfaceView.getHandler());
+
+        } catch (CameraAccessException e) {
+            e.printStackTrace();
+        }
+
+
+
+    }
+
+
+}
