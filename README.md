@@ -1,6 +1,7 @@
+
 # gradleNote
 
-
+```
 def doGetHostName(variant) {
     def buildVariants = variant;
     if(variant==null){
@@ -46,3 +47,4 @@ def doGetConfigHostName(name, defaultValue) {
     }
     return ret
 }
+```
